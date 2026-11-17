@@ -1,60 +1,92 @@
-# AI Capture & Visual Pipeline (com.chromehypercube.ai-capture)
+# AI Capture & Visual Pipeline
 
-Pacote UPM para Unity 2022.3+ que automatiza:
+`com.chromehypercube.ai-capture` · versão 1.7.0 · Unity 2022.3 ou mais nova (testado no Unity 6)
 
-1. **Capturas de tela roteirizadas** — um asset `CaptureScenario` descreve passos (esperar, clicar via código, trocar idioma, mudar resolução, capturar).
-2. **Descrição de UI em texto** — um resumo compacto da hierarquia de Canvas para colar num agente de IA (MCP).
-3. **Regressão visual com Golden Images** — compara cada captura com uma imagem aprovada e gera overlay de diferenças + relatório JSON.
+Pacote de Editor para Unity que deixa a interface do seu jogo **verificável por pessoas e por agentes de IA**: roda roteiros de captura de tela, compara cada tela com uma imagem aprovada, explica em texto o que mudou e onde, e gera um contexto compacto das cenas e prefabs para um agente ler sem abrir arquivos YAML enormes.
+
+## O que ele faz
+
+| Recurso | Para quê |
+|---|---|
+| **Cenários de captura** | Um asset descreve os passos (esperar, clicar, rolar, trocar idioma, mudar resolução, capturar). O pacote entra em Play Mode, executa tudo e sai sozinho. |
+| **Regressão visual com golden images** | Cada captura é comparada com a imagem aprovada. Sai um relatório com o motivo da falha, as caixas do que mudou e recortes *golden \| atual \| diff*. |
+| **Mudanças declaradas** | Você (ou o agente) avisa antes o que deve mudar. O que bate fica *aguardando aprovação*; o que mudou fora disso continua falhando. |
+| **Descrição de UI em texto** | Um resumo da hierarquia de Canvas (tamanhos, textos, componentes, estouros) pronto para colar num agente. |
+| **Contexto do projeto para IA** | A pasta `AIContext/` descreve cada prefab e resume cada cena em poucos KB, e se atualiza sozinha. |
+| **Cena → prefabs com segurança** | Sugere grupos que deveriam virar prefab, analisa referências para fora do grupo e converte, pelo menu ou por agente. |
+| **API para agentes** | `AICaptureAgentAPI`: métodos que recebem texto e devolvem JSON, para usar com MCP for Unity, Unity CLI ou qualquer ferramenta que rode C# no Editor. |
+| **Limpeza automática** | A pasta de saída temporária não cresce sem limite (ver [Onde ficam os arquivos](#onde-ficam-os-arquivos)). |
 
 ---
 
 ## 1. Instalação
 
-Escolha **uma** das opções:
+**Pelo Git (recomendado).** No `Packages/manifest.json` do projeto:
 
-**A) Embutido no projeto (mais simples)**
-Copie a pasta `com.chromehypercube.ai-capture/` para dentro de `SeuProjeto/Packages/`. A Unity detecta sozinha.
+```json
+"com.chromehypercube.ai-capture": "https://github.com/geandreotti/ai-capture.git#v1.7.0"
+```
 
-**B) Do disco**
-Window → Package Manager → `+` → *Add package from disk…* → selecione o `package.json` desta pasta.
+ou Window → Package Manager → `+` → *Add package from git URL…* com o mesmo endereço. A tag (`#v1.7.0`) fixa a versão; sem ela, o projeto pega o último commit da `main`. Repositório privado precisa de login no Git da máquina (o Package Manager usa o Git do sistema).
 
-**C) Do Git**
-Suba esta pasta como raiz de um repositório e use `+` → *Add package from git URL…*
+**Embutido.** Copie a pasta do repositório para `SeuProjeto/Packages/com.chromehypercube.ai-capture/`. Útil para editar o pacote junto com o projeto; lembre de trazer as mudanças de volta para o repositório.
 
-Depois de instalado: Package Manager → AI Capture → aba **Samples** → *Import* em "Exemplo de hooks" (opcional, recomendado).
+Depois de instalar: Package Manager → AI Capture → aba **Samples** → *Import* em "Exemplo de hooks" (opcional, recomendado).
+
+Dependências: `com.unity.ugui` e `com.unity.textmeshpro`.
 
 ---
 
-## 2. Criando um cenário
+## 2. Início rápido
 
-1. No Project: botão direito → **Create → AI Capture → Capture Scenario**.
-2. Preencha:
-   - `scenarioId` — nome da pasta de saída/goldens (ex.: `home`).
-   - `defaultLocale` — ex.: `en` ou `pt-BR`.
-   - `targetWidth` / `targetHeight` — resolução da Game View durante a captura (ex.: 1080 × 2400).
-   - `steps` — a lista de passos.
+1. **Create → AI Capture → Capture Scenario** e dê um `scenarioId` (ex.: `menu`).
+2. Adicione os passos: `WaitUntil` (sua tela pronta), `WaitForStable`, `Capture` com o nome da tela.
+3. Escreva os hooks que o cenário chama (ex.: `[CaptureCondition("menu_ready")]`) — ver [Hooks](#4-hooks-ligando-o-cenário-ao-seu-jogo).
+4. Selecione o asset e clique **▶ Rodar + Comparar**. Na primeira vez não há golden: confira as imagens e aprove com **Tools → AI Capture → Accept Last Run as Golden**.
+5. Faça commit de `AICaptureGoldens/`. A partir daí, cada execução diz se a tela mudou.
 
-### Tipos de passo
+---
 
-| Passo | Campos usados | O que faz |
+## 3. Cenários
+
+No Project: botão direito → **Create → AI Capture → Capture Scenario**.
+
+| Campo | Padrão | O que é |
+|---|---|---|
+| `scenarioId` | `home` | Nome da pasta de saída e das goldens |
+| `defaultLocale` | `en` | Idioma usado quando a execução não informa outro |
+| `targetWidth` / `targetHeight` | 1080 × 2400 | Resolução da Game View durante a captura |
+| `colorTolerance` | 0,05 | Diferença por canal ignorada |
+| `maxMismatchPercent` | 0,01 | Falha se mais de 1% dos pixels mudar |
+| `maxRegionPixels` | 0 (desligado) | Falha se qualquer área alterada passar desse tamanho, mesmo com poucos pixels (pega um título quebrado) |
+| `strictGoldens` | ligado | Captura sem golden falha em vez de virar golden sozinha |
+| `rules` | — | Regras por captura (ver [Regras e máscaras](#regras-por-captura-e-máscaras)) |
+| `steps` | — | A lista de passos |
+
+### Passos
+
+| Passo | Campos | O que faz |
 |---|---|---|
 | `Wait` | `floatValue` = segundos | Espera em tempo real |
 | `WaitFrames` | `intValue` = frames | Espera N frames |
-| `WaitUntil` | `targetName` = id da condição, `floatValue` = timeout (padrão 10s), `args` | Espera um `[CaptureCondition]` ficar `true` |
-| `Capture` | `targetName` = nome do arquivo | Salva `nome_{locale}.png` |
-| `SetLocale` | `targetName` = locale | Chama a action `set_locale` e muda o sufixo dos arquivos |
+| `WaitUntil` | `targetName` = condição, `floatValue` = timeout (10 s), `args` | Espera um `[CaptureCondition]` ficar verdadeiro |
+| `WaitForStable` | `floatValue` = timeout (5 s) | Espera a tela parar de mudar; estourar só gera aviso |
+| `Capture` | `targetName` = nome | Salva `nome_{locale}.png` |
+| `SetLocale` | `targetName` = idioma | Chama a action `set_locale` e muda o sufixo dos arquivos |
 | `SetResolution` | `intValue` = largura, `extraIntValue` = altura | Muda a Game View no meio do cenário |
 | `SetTimeScale` | `floatValue` | Ex.: `0` para congelar animações antes de capturar |
-| `InvokeAction` | `targetName` = id da action, `args` | Chama um método `[CaptureAction]` |
+| `InvokeAction` | `targetName` = action, `args` | Chama um `[CaptureAction]` |
 
-### Exemplo de cenário "home"
+Ações e condição que já vêm no pacote, sem hook: `click` (args[0] = caminho ou nome do objeto), `scroll` (args[0] = ScrollRect, args[1] = 0..1) e a condição `exists`.
+
+### Exemplo
 
 ```
-0  WaitUntil     targetName: main_menu_ready   floatValue: 15
+0  WaitUntil     targetName: menu_ready      floatValue: 15
 1  SetTimeScale  floatValue: 0
-2  WaitFrames    intValue: 2
+2  WaitForStable
 3  Capture       targetName: home
-4  InvokeAction  targetName: open_settings
+4  InvokeAction  targetName: click           args: ["Canvas/Tabs/Settings"]
 5  WaitUntil     targetName: settings_visible
 6  Capture       targetName: settings
 7  SetLocale     targetName: pt-BR
@@ -66,106 +98,88 @@ Resultado: `home_en.png`, `settings_en.png`, `settings_pt-BR.png`.
 
 ---
 
-## 3. Hooks: ligando o cenário ao seu jogo
-
-Marque métodos no seu código:
+## 4. Hooks: ligando o cenário ao seu jogo
 
 ```csharp
 using ChromeHypercube.AICapture;
 
 public class MenuHooks : MonoBehaviour
 {
+    [CaptureCondition("menu_ready")]
+    bool MenuReady() => mainMenu.activeInHierarchy;
+
     [CaptureAction("open_settings")]
     void OpenSettings() => settingsPanel.SetActive(true);
-
-    [CaptureCondition("settings_visible")]
-    bool SettingsVisible() => settingsPanel.activeInHierarchy;
 
     [CaptureAction("set_locale")]            // chamado no início e em cada SetLocale
     static void SetLocale(string[] args) { /* troque o idioma para args[0] */ }
 
-    [CaptureAction("load_scene")]            // IEnumerator = o cenário espera terminar
+    [CaptureAction("load_scene")]            // IEnumerator: o cenário espera terminar
     static IEnumerator LoadScene(string[] args) { ... }
 }
 ```
 
-Assinaturas aceitas:
-- Action: `void M()`, `void M(string[] args)`, `IEnumerator M()`, `IEnumerator M(string[] args)`
-- Condition: `bool M()` ou `bool M(string[] args)`
-- Métodos de instância precisam estar num MonoBehaviour **ativo na cena**. Métodos `static` funcionam sempre.
+- Action: `void M()`, `void M(string[] args)`, `IEnumerator M()` ou `IEnumerator M(string[] args)`.
+- Condition: `bool M()` ou `bool M(string[] args)`.
+- Métodos de instância precisam estar num MonoBehaviour **ativo na cena**; `static` funciona sempre.
+- Hooks costumam ser só de Editor: coloque-os atrás de `#if UNITY_EDITOR` ou numa pasta `Editor` quando não precisarem existir no build.
 
-Para conferir o que o pacote encontrou: **Tools → AI Capture → List Hooks**.
+**Tools → AI Capture → List Hooks** mostra o que o pacote encontrou.
 
 ---
 
-## 4. Rodando
+## 5. Rodando
 
-Qualquer uma destas formas:
-
-- Selecione o asset do cenário → no Inspector clique **▶ Rodar + Comparar**.
-- Botão direito no asset → **AI Capture → Run Scenario**.
-- Por código (útil para agentes de IA via MCP / `execute_code`):
+- Selecione o asset → **▶ Rodar + Comparar** no Inspector.
+- Botão direito no asset → **AI Capture → Run Scenario** (ou *sem comparar*, que só gera as imagens).
+- Por código, inclusive por agente via MCP:
   ```csharp
-  ChromeHypercube.AICapture.CaptureRunner.RunByPath("Assets/Capture/Home.asset", "pt-BR");
+  ChromeHypercube.AICapture.CaptureRunner.RunByPath("Assets/Capture/Menu.asset", "pt-BR");
   ```
 
-O pacote entra em Play Mode, ajusta a Game View, executa os passos, compara com as goldens, restaura a resolução original e sai do Play Mode. Se você já estiver em Play Mode, ele roda na sessão atual e não sai.
+O pacote espera o Editor terminar de compilar ou importar, entra em Play Mode, ajusta a Game View, executa os passos, compara, restaura a resolução e sai. Se você já estiver em Play Mode, ele roda nessa sessão e não sai.
 
 ### Onde ficam os arquivos
 
-- **Saída de cada execução:** `<pasta temporária do sistema>/ai-capture/<scenarioId>/<data_hora>_<locale>/`
+- **Execuções:** `<temp>/ai-capture/<scenarioId>/<data_hora>_<locale>/`
   - `*.png` — capturas
-  - `manifest.json` — capturas e erros da execução
+  - `manifest.json` — capturas e erros
   - `regression_report.json` — resultado da comparação
-  - `*_diff.png` — overlay: vermelho = pixel diferente, amarelo = caixa da região alterada
-- **Última execução:** `<temp>/ai-capture/latest.txt` contém o caminho, e **Tools → AI Capture → Open Last Output Folder** abre a pasta.
-- **Goldens:** `<projeto>/AICaptureGoldens/<scenarioId>/` (fora de `Assets/`, então a Unity não importa as imagens). **Versione esta pasta no Git.**
+  - `report.md` — resumo por captura, para leitura rápida
+  - `*_diff.png` — overlay: vermelho = pixel diferente, amarelo = região alterada, azul = região ignorada
+  - `<captura>_box<N>.png` — recorte *golden \| atual \| diff* de cada região alterada
+- **Última execução:** `<temp>/ai-capture/latest.txt` tem o caminho; **Tools → AI Capture → Open Last Output Folder** abre a pasta.
+- **Goldens:** `<projeto>/AICaptureGoldens/<scenarioId>/`, fora de `Assets/` (a Unity não importa as imagens). **Versione esta pasta.**
+
+**Limpeza automática** (1.7.0). As execuções são cópias de trabalho; o que vale fica nas goldens. Ao iniciar uma execução, o pacote mantém as **3 mais novas** de cada cenário e apaga as com **mais de 7 dias**. Uma execução aguardando aprovação fica até 30 dias, e a última execução nunca é apagada. Pastas e arquivos avulsos na raiz de `ai-capture` saem depois de 7 dias. Aprovar **todas** as capturas de uma execução apaga essa execução (as imagens já foram para as goldens); aprovar só uma parte a mantém.
 
 ---
 
-## 5. Fluxo de regressão visual
+## 6. Regressão visual
 
-1. **Primeira execução:** não existe golden → cada captura vira golden automaticamente (`isNewGolden: true`).
-2. **Execuções seguintes:** cada captura é comparada com a golden de mesmo nome.
-   - Tolerância por canal: 5% (`colorTolerance = 0.05`).
-   - Falha se mais de 1% dos pixels diferirem (`maxMismatchPercent = 0.01`).
-   - Tamanho diferente da golden = falha (`sizeMismatch: true`).
-3. **Mudança intencional?** Rode de novo e clique **Aprovar última execução como golden** (ou **Tools → AI Capture → Accept Last Run as Golden**).
+1. Cada captura é comparada com a golden de mesmo nome. Tamanho diferente = falha.
+2. O relatório traz `status`: `passed`, `needs_approval` (mudou só o que foi declarado) ou `failed`, e cada falha vem com `failReason`.
+3. As `boundingBoxes` estão em pixels, com origem no **canto superior esquerdo**: prontas para um agente apontar o que mudou.
+4. Mudança intencional: rode de novo e aprove com **Accept Last Run as Golden**, ou só uma captura com `AICaptureAgentAPI.AcceptLastRunAsGolden("settings")`.
 
-### Relatório para leitura rápida
+### Mudança de UI declarada
 
-Cada execução grava `report.md` (tabela por captura) e, para cada região alterada, `<captura>_box<N>.png` com **golden | atual | diff** lado a lado. É o que um agente deve ler antes de abrir a captura inteira.
+1. Depois de editar a UI: `AICaptureAgentAPI.DeclareExpectedChange("menu", "settings", "título maior", x, y, w, h)`. A região é opcional; `"*"` vale para qualquer captura. As declarações ficam em `AICaptureGoldens/<cenário>/expected_changes.json`.
+2. Rode o cenário. O que foi declarado e não mudou aparece em `declaredButUnchanged`.
+3. Revise os recortes das capturas `AWAITING APPROVAL` e aprove; aprovar limpa a declaração.
 
-### Mudança de UI intencional (declarar, revisar, aprovar)
+### Regras por captura e máscaras
 
-1. Depois de editar a UI: `AICaptureAgentAPI.DeclareExpectedChange("menu", "explore", "título vermelho", x, y, w, h)` (região opcional, pixels, origem no canto superior esquerdo; `"*"` = qualquer captura).
-2. Rode o cenário. O `status` do relatório diz: `passed` (nada mudou; o que foi declarado e não mudou aparece em `declaredButUnchanged`), `needs_approval` (mudou só o declarado) ou `failed` (mudou algo fora do declarado, ou falta golden).
-3. Olhe os recortes `golden | atual | diff` das capturas `AWAITING APPROVAL` e aprove com `AcceptLastRunAsGolden("explore")`, o que também limpa a declaração.
-
-### Passos e ações embutidas
-
-- `WaitForStable` espera a tela parar de mudar (timeout em `floatValue`, padrão 5s; estourar só gera um aviso).
-- `InvokeAction` com `click` (args[0] = caminho ou nome do objeto), `scroll` (args[0] = ScrollRect, args[1] = 0..1) e a condição `exists` já vêm no pacote.
-
-### Regras por captura, máscara e modo estrito
-
-No asset do cenário:
-
-- `maxMismatchPercent` e `colorTolerance` valem para todas as capturas; `maxRegionPixels` falha se **qualquer** região alterada (largura x altura da caixa) passar do limite, mesmo que poucos pixels tenham mudado. É o que pega um título quebrado numa tela quase igual.
-- `rules` sobrescreve isso por captura. `captureName` casa com o nome do passo `Capture` (e com `nome_pt`, `nome_en`...). Use `-1` para herdar o valor do cenário. `ignoreRegions` são retângulos em pixels, origem no canto superior esquerdo (como as `boundingBoxes`), tirados da comparação: ideal para conteúdo ao vivo. No overlay eles aparecem em azul.
-- `strictGoldens` (padrão ligado): captura sem golden **falha** (`missingGolden: true`) em vez de virar golden. Para criar goldens, rode e aprove com **Accept Last Run as Golden**. Para aprovar uma só: `AICaptureAgentAPI.AcceptLastRunAsGolden("explore")`.
-- Toda falha traz `failReason` no relatório.
-
-As `boundingBoxes` do relatório estão em pixels com origem no **canto superior esquerdo** — prontas para um agente de IA apontar "o que mudou".
+`rules` sobrescreve os limites do cenário por captura. `captureName` casa com o nome do passo `Capture` (e com `nome_pt`, `nome_en`…); use `-1` para herdar o valor do cenário. `ignoreRegions` são retângulos em pixels (origem no canto superior esquerdo) tirados da comparação, ideais para conteúdo ao vivo. A regra por região exige 5% de densidade de pixels alterados na caixa, para não reprovar ruído de antialiasing em títulos largos.
 
 ---
 
-## 6. Descrição de UI para IA
+## 7. Descrição de UI para IA
 
-- Selecione um GameObject → botão direito → **AI Capture → Describe UI (copiar)**.
-- Ou **Tools → AI Capture → Describe All Canvases (copiar)** (melhor em Play Mode).
+- Botão direito num GameObject → **AI Capture → Describe UI (copiar)**.
+- **Tools → AI Capture → Describe All Canvases (copiar)** (melhor em Play Mode).
 
-O texto vai para a área de transferência e para `<temp>/ai-capture/ui_description.txt`. Exemplo:
+O texto vai para a área de transferência e para `<temp>/ai-capture/ui_description.txt`:
 
 ```
 ## Canvas MainCanvas (mode: ScreenSpaceOverlay, sortOrder: 0)
@@ -179,57 +193,33 @@ Por código: `DescribeUITool.Describe(gameObject)` ou `DescribeUITool.DescribeAl
 
 ---
 
-## 7. Contexto do projeto para agentes de IA (prefabs e cenas)
+## 8. Contexto do projeto para agentes (`AIContext/`)
 
-Cenas da Unity são arquivos YAML enormes. Para entender um menu, uma IA teria que ler a cena inteira. Este recurso gera uma pasta de contexto compacta e sempre atualizada, para que o agente leia só o que precisa.
-
-### Gerar
-
-**Tools → AI Capture → Exportar contexto para IA (prefabs + cenas abertas)**
-
-Isso cria, na raiz do projeto (fora de `Assets/`):
+Cenas da Unity são YAML enormes. **Tools → AI Capture → Exportar contexto para IA** cria, na raiz do projeto:
 
 ```
 AIContext/
 ├── README.md        ← instruções e legenda para o agente
 ├── index.txt        ← uma linha por cena e por prefab (leia primeiro)
-├── prefabs/
-│   └── UI/Menus/SettingsMenu.txt   ← descrição de Assets/UI/Menus/SettingsMenu.prefab
-└── scenes/
-    └── Scenes/Main.txt             ← resumo da cena + candidatos a prefab
+├── prefabs/…        ← uma descrição por prefab
+└── scenes/…         ← resumo de cada cena + candidatos a prefab
 ```
-
-Exemplo de linha do `index.txt`:
 
 ```
 - Assets/UI/Menus/SettingsMenu.prefab | UI | 34 nós | scripts: SettingsMenu, LocalizedText | usa: Button_Primary, Toggle_Default
 ```
 
-Exemplo de descrição de prefab:
+Depois da primeira exportação, tudo se atualiza sozinho ao salvar, mover ou apagar prefabs e ao salvar cenas. Para exportar só alguns itens: botão direito em prefabs ou pastas → **AI Capture → Exportar descrição para IA**. Por código: `AIContextExporter.ExportAll()`, `ExportPrefab(path)`, `ExportScene(scene)`.
 
-```
-# Assets/UI/Menus/SettingsMenu.prefab | UI | 34 nós | scripts: SettingsMenu | usa: Button_Primary
-guid: 3f2a...
+**Dica:** versione `AIContext/`. Agentes que trabalham sem a Unity aberta (por exemplo, na nuvem, a partir do repositório) também entendem a UI e as cenas.
 
-- SettingsMenu | 1080x2400 pos(0,0) anchor(0,0)-(1,1) | scripts: SettingsMenu
-  - Header | 1080x200 pos(0,-100) | [HLayout]
-    - Title | 600x120 pos(0,0) | TMP("Configurações", size:64)
-  - SaveButton [Prefab: Assets/UI/Widgets/Button_Primary.prefab] | 400x120 pos(0,-900) (+2 internos)
-```
+### Candidatos a prefab
 
-### Resumo de cenas e candidatos a prefab
-
-O resumo de cada cena mostra os prefabs usados, os objetos soltos e marca com `⚠ CANDIDATO A PREFAB` os grupos grandes fora de prefabs (por padrão, 15 objetos ou mais; Canvas raiz não conta). Também indica instâncias com overrides na cena, que vale aplicar no prefab para enxugar o arquivo da cena. É o mapa para a otimização "cena → prefabs".
-
-### Atualização automática
-
-Depois da primeira exportação, o pacote mantém tudo em dia sozinho: salvar, mover ou apagar um prefab atualiza a descrição dele, e salvar uma cena atualiza o resumo dela.
-
-Para exportar só alguns itens: botão direito em prefabs ou pastas → **AI Capture → Exportar descrição para IA**.
+O resumo de cena marca com `⚠ CANDIDATO A PREFAB` grupos de objetos soltos entre `sceneCandidateThreshold` (15) e `sceneCandidateMaxSize` (200); grupos maiores são examinados por dentro, em vez de sugerir a UI inteira. Estruturas repetidas entre irmãos (cards, linhas de lista) também contam, com "xN repetidos". Também aparecem instâncias com overrides que valem ser aplicados no prefab.
 
 ### Configurações
 
-**Edit → Project Settings → AI Capture** (ou **Tools → AI Capture → Configurações…**):
+**Edit → Project Settings → AI Capture** (ou **Tools → AI Capture → Configurações…**), salvas em `ProjectSettings/AICaptureSettings.asset`:
 
 | Opção | Padrão | Para que serve |
 |---|---|---|
@@ -238,70 +228,57 @@ Para exportar só alguns itens: botão direito em prefabs ou pastas → **AI Cap
 | Atualizar automaticamente | ligado | Regera ao salvar prefabs e cenas |
 | Não expandir prefabs aninhados | ligado | Descrições bem menores; cada prefab tem a sua |
 | Profundidade (prefabs / cenas) | 12 / 6 | Limite da hierarquia descrita |
-| Mínimo p/ candidato a prefab | 15 | Tamanho do grupo para sugerir conversão |
-
-As configurações ficam em `ProjectSettings/AICaptureSettings.asset` e vão para o Git com o projeto.
-
-### Dica: versione a pasta `AIContext/`
-
-Se você fizer commit dela, agentes que trabalham **sem a Unity aberta** (por exemplo, rodando na nuvem a partir do repositório) também conseguem entender a estrutura da UI e das cenas.
-
-### Por código
-
-```csharp
-AIContextExporter.ExportAll();
-AIContextExporter.ExportPrefab("Assets/UI/Menus/SettingsMenu.prefab");
-AIContextExporter.ExportScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene());
-```
+| Candidato a prefab (mínimo / máximo) | 15 / 200 | Tamanho dos grupos sugeridos |
+| Permitir referências externas | desligado | Ligado, a conversão só avisa das referências para fora do grupo em vez de recusar |
+| Pasta dos prefabs convertidos | `Assets/Prefabs/Converted` | Onde a conversão salva |
 
 ---
 
-## 8. Conversão de grupos da cena em prefabs (por você ou pela IA)
+## 9. Cena → prefabs
 
-### Pelo Editor
+**Pelo Editor:** botão direito na Hierarchy → **AI Capture → Converter em prefab…**. Antes de converter, o pacote lista as ligações de dentro do grupo para fora dele (ex.: o OnClick chamando um GameManager da cena). Elas continuam funcionando nesta cena como override, mas chegam vazias se o prefab for usado em outra. **Tools → AI Capture → Listar candidatos a prefab (cena ativa)** mostra os grupos sugeridos já analisados.
 
-Botão direito num objeto da Hierarchy → **AI Capture → Converter em prefab…**
+Converter tem desfazer (Ctrl+Z) na cena, mas o `.prefab` criado continua no projeto: faça commit antes de converter vários grupos.
 
-Antes de converter, o pacote analisa o grupo. Se algum objeto dentro dele aponta para algo **fora** do grupo (por exemplo, o OnClick de um botão chamando um GameManager da cena), aparece a lista dessas ligações. Elas continuam funcionando nesta cena, como override, mas chegam **vazias** se o prefab for usado em outra cena. Você escolhe converter mesmo assim ou cancelar e religar essas referências por código antes.
+---
 
-**Tools → AI Capture → Listar candidatos a prefab (cena ativa)** mostra os grupos sugeridos, já analisados.
+## 10. Para agentes de IA
 
-O prefab é salvo em `Assets/Prefabs/Converted/` (configurável em Project Settings → AI Capture).
-
-### Pela IA
-
-A classe `AICaptureAgentAPI` reúne métodos simples que recebem texto e devolvem JSON. Funcionam com qualquer ferramenta que execute C# no Editor, como o MCP for Unity ou o Unity CLI. Cada resposta também é gravada em `AIContext/last_action.json`.
+`AICaptureAgentAPI` recebe texto e devolve JSON; cada resposta também vai para `AIContext/last_action.json`.
 
 | Método | O que faz |
 |---|---|
+| `RunScenario("Assets/Capture/Menu.asset", locale, compare)` | Inicia uma captura (assíncrona: entra e sai do Play Mode) |
+| `GetLastRunReport()` | Relatório da última execução |
+| `DeclareExpectedChange(cenário, captura, descrição, x, y, w, h)` | Declara uma mudança intencional |
+| `AcceptLastRunAsGolden(captura?)` | Aprova a última execução, inteira ou uma captura |
 | `ListPrefabCandidates()` | Candidatos da cena ativa, já analisados |
 | `AnalyzeForPrefab("Canvas/Settings")` | Riscos antes de converter; não altera nada |
 | `ConvertToPrefab("Canvas/Settings")` | Cria o prefab, salva a cena e atualiza o contexto |
-| `RunScenario("Assets/Capture/Menus.asset")` | Inicia uma captura (assíncrona) |
-| `GetLastRunReport()` | Relatório da última captura |
-| `AcceptLastRunAsGolden()` | Aprova as capturas atuais |
-| `ExportContext()` | Regera a pasta `AIContext/` |
+| `ExportContext()` | Regera `AIContext/` |
 
-`ConvertToPrefab` **recusa** a conversão se houver referências externas, a menos que receba `allowExternalReferences: true`. Assim o agente precisa decidir conscientemente o que fazer com elas.
+`ConvertToPrefab` recusa quando há referências externas, a menos que receba `allowExternalReferences: true` (ou a opção esteja ligada no projeto). Caminhos ambíguos são recusados; para escolher a cena use `"Assets/Scenes/Main.unity:Canvas/Settings"`.
 
-Caminhos ambíguos (dois objetos com o mesmo caminho) são recusados. Para escolher a cena, use o prefixo: `"Assets/Scenes/Main.unity:Canvas/Settings"`.
+**Fluxo sugerido para uma mudança de UI feita por agente**
 
-Fluxo seguro sugerido para um agente:
+1. Ler `AIContext/index.txt` e a descrição do prefab ou da cena que vai mudar.
+2. Fazer a mudança e declarar com `DeclareExpectedChange`.
+3. `RunScenario(...)`, esperar o Play Mode terminar e ler `GetLastRunReport()` e o `report.md`.
+4. `passed` = nada mudou na tela; `needs_approval` = mostre os recortes a uma pessoa; `failed` = mudou algo fora do declarado, corrija.
+5. A aprovação da golden é de uma pessoa (ou do agente revisor), nunca de quem fez a mudança.
 
-1. `RunScenario(...)` para gerar a golden "antes", se ainda não existir.
-2. `ListPrefabCandidates()` e `AnalyzeForPrefab(...)`.
-3. `ConvertToPrefab(...)`.
-4. `RunScenario(...)` de novo e depois `GetLastRunReport()`. Se `passed` for `true`, a conversão não mudou nada na tela.
-
-Converter tem desfazer (Ctrl+Z) na cena, mas o arquivo `.prefab` criado continua no projeto. Mesmo assim, faça commit no Git antes de deixar um agente converter vários grupos seguidos.
+Para converter grupos em prefabs: gere a golden "antes", `ListPrefabCandidates()`, `AnalyzeForPrefab(...)`, `ConvertToPrefab(...)` e rode o cenário de novo: `passed` confirma que a conversão não mudou a tela.
 
 ---
 
-## 9. Dicas e limitações
+## 11. Dicas e limitações
 
-- A Game View precisa estar **aberta e visível** (não minimizada) para a captura sair na resolução certa.
-- Desmarque **Low Resolution Aspect Ratios** na Game View, ou a imagem sai com metade da resolução.
-- Use `SetTimeScale 0` + `WaitFrames 2` antes de capturar para eliminar diferenças de animação.
-- A troca de resolução usa APIs internas da Unity via reflexão; se uma versão futura mudá-las, você verá um aviso no Console e a captura sai na resolução atual da Game View.
+- A Game View precisa estar **aberta e visível** para a captura sair na resolução certa. O pacote desliga *Low Resolution Aspect Ratios* durante a execução e restaura depois.
+- Use `SetTimeScale 0` e `WaitForStable` antes de capturar para eliminar animações e transições.
+- Conteúdo que muda sozinho (hora, rede, dados ao vivo): mascare com `ignoreRegions` ou fixe por um hook.
+- A troca de resolução usa APIs internas da Unity por reflexão; se uma versão futura mudá-las, você verá um aviso e a captura sai na resolução atual da Game View.
 - Não roda em batchmode com `-nographics` (sem GPU não há screenshot).
-- O pacote só cria e remove o **próprio** tamanho "AI Capture" na Game View; seus tamanhos personalizados não são tocados.
+- O pacote só cria e remove o **próprio** tamanho "AI Capture" na Game View (**Tools → AI Capture → Clean Game View Sizes** remove sobras).
+- Funciona com domain reload desligado: o estado estático é reiniciado a cada sessão de Play.
+
+Histórico de versões: [CHANGELOG.md](CHANGELOG.md).

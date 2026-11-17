@@ -4,6 +4,8 @@
   "displayName": "AI Capture & Visual Pipeline",
   "description": "Automated screenshot scenarios, visual regression with golden images, compact project context for AI agents, and safe agent-driven conversion of scene objects into prefabs.",
   "unity": "2022.3",
+  "documentationUrl": "https://github.com/geandreotti/ai-capture#readme",
+  "changelogUrl": "https://github.com/geandreotti/ai-capture/blob/main/CHANGELOG.md",
   "keywords": [
     "ai",
     "context",
