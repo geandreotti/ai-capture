@@ -1,0 +1,20 @@
+{
+  "name": "ChromeHypercube.AICapture.Editor",
+  "rootNamespace": "ChromeHypercube.AICapture",
+  "references": [
+    "ChromeHypercube.AICapture.Runtime",
+    "Unity.TextMeshPro",
+    "UnityEngine.UI"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

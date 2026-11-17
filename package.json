@@ -1,0 +1,33 @@
+{
+  "name": "com.chromehypercube.ai-capture",
+  "version": "1.7.0",
+  "displayName": "AI Capture & Visual Pipeline",
+  "description": "Automated screenshot scenarios, visual regression with golden images, compact project context for AI agents, and safe agent-driven conversion of scene objects into prefabs.",
+  "unity": "2022.3",
+  "keywords": [
+    "ai",
+    "context",
+    "golden-image",
+    "llm",
+    "mcp",
+    "prefab",
+    "screenshot",
+    "ui",
+    "visual-regression"
+  ],
+  "author": {
+    "name": "Chrome Hypercube",
+    "url": "https://github.com/chromehypercube"
+  },
+  "dependencies": {
+    "com.unity.ugui": "1.0.0",
+    "com.unity.textmeshpro": "3.0.6"
+  },
+  "samples": [
+    {
+      "displayName": "Exemplo de hooks (actions e conditions)",
+      "description": "MonoBehaviour de exemplo com [CaptureAction] e [CaptureCondition], incluindo o hook set_locale.",
+      "path": "Samples~/HooksExample"
+    }
+  ]
+}
